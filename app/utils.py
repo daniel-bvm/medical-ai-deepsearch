@@ -5,20 +5,10 @@ import base64
 from .models import ChatCompletionStreamResponse
 import time
 import json
-import uuid
 from typing import Any
-from PIL import Image
 from io import BytesIO
 
 
-def heif_to_jpeg(file_data_uri: str) -> str:
-    file_data_base64 = file_data_uri.split(',')[-1]
-    file_data = base64.b64decode(file_data_base64)
-    img = Image.open(BytesIO(file_data))
-    img = img.convert('RGB')
-    buffer = BytesIO()
-    img.save(buffer, format='JPEG')
-    return buffer.getvalue()
 
 logger = logging.getLogger(__name__)
 
@@ -275,17 +265,6 @@ Response:
             )
         ]
     )
-
-import numpy as np
-from PIL import Image
-from io import BytesIO
-
-def image_to_base64_uri(image: np.ndarray) -> str:
-    buffer = BytesIO()
-    image = Image.fromarray(image)
-    image.save(buffer, format='JPEG')
-    return f'data:image/jpeg;base64,{base64.b64encode(buffer.getvalue()).decode("utf-8")}'
-
 
 def random_str(n: int) -> str:
     return os.urandom(n // 2).hex()

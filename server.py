@@ -3,8 +3,8 @@ from app import prompt
 
 async def main():
     user_messages = [
-        'I want to build strength. I train boxing and S&C. after each train, I can do sauna and cold plunge, please do search and advise me to maximize my recovery and performance.',
-        'yes'
+        'what is the current btc price?',
+        'I want to build strength. I train boxing and S&C. after each train, I can do sauna and cold plunge, please research and advise me to maximize my recovery and performance.'
     ]
 
     user_messages_it = iter(user_messages)

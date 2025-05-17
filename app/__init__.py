@@ -1,3 +1,5 @@
+import eai_http_middleware
+
 import logging
 from dotenv import load_dotenv
 
@@ -15,7 +17,6 @@ from deepsearch.agents import (
     deep_reasoning_agent,
     pubmed_search_agent,
     tavily_search,
-    xray_lesion_detector
 )
 from app.utils import (
     refine_assistant_message,
@@ -23,9 +24,7 @@ from app.utils import (
     wrap_chunk,
     to_chunk_data,
     wrap_toolcall_response,
-    image_to_base64_uri,
     wrap_thinking_chunk,
-    random_str
 )
 from starlette.concurrency import run_in_threadpool
 from functools import partial
@@ -57,10 +56,6 @@ async_bm25_search_agent = sync2async(bm25_search_agent)
 async_llama_reasoning_agent = sync2async(llama_reasoning_agent)
 async_deep_reasoning_agent = sync2async(deep_reasoning_agent)
 async_pubmed_search_agent = sync2async(pubmed_search_agent)
-
-async_chess_xray_lesion_detector = sync2async(xray_lesion_detector.predict)
-async_chess_xray_lesion_visualize = sync2async(xray_lesion_detector.visualize)
-async_chess_xray_lesion_quick_diagnose = sync2async(xray_lesion_detector.quick_diagnose)
 
 
 logger = logging.getLogger(__name__)
@@ -462,90 +457,6 @@ async def prompt(messages: list[dict[str, str]], **kwargs) -> AsyncGenerator[byt
 
     messages = await refine_chat_history(messages, system_prompt=system_prompt)
     response_uuid = str(uuid.uuid4())
-    user_message = messages[-1]['content']
-
-    if len(attachment_paths) > 0:
-        calls = []
-
-        for path in attachment_paths:
-            calls.append(
-                {
-                    "id": 'call_' + random_str(24),
-                    "type": "function",
-                    "function": {
-                        "name": "diagnose",
-                        "arguments": json.dumps({
-                            "image_path": path
-                        })
-                    }
-                }
-            )
-
-        messages.append({
-            "role": "assistant",
-            "tool_calls": calls,
-            "content": ""
-        })
-
-        for call, path in zip(calls, attachment_paths):
-            file_basename = os.path.basename(path)
-
-            yield await to_chunk_data(
-                await wrap_thinking_chunk(
-                    response_uuid,
-                    f'Diagnosing: {file_basename}'
-                )
-            )
-
-            is_xray, vis, comment = xray_lesion_detector.xray_diagnose_agent(path, user_message)
-
-            if vis is not None:
-                template = '''
-
-<img src="{uri}" width=360px alt><br>
-
-<details>
-    <summary>Diagnosis</summary>
-    {comment}
-</details>
-
---------------------------------
-'''
-
-                uri = image_to_base64_uri(vis)
-
-                yield await to_chunk_data(
-                    await wrap_chunk(
-                        response_uuid,
-                        template.format(uri=uri, comment=comment.replace('\n', '<br>')),
-                        role='tool'
-                    )
-                )
-
-            else:
-                template = '''\
-<details>
-    <summary>Diagnosis</summary>
-    {comment}
-</details>
-
---------------------------------
-'''
-                yield await to_chunk_data(
-                    await wrap_chunk(
-                        response_uuid,
-                        template.format(
-                            file_basename=file_basename,
-                            comment=comment,
-                        )
-                    )
-                )
-            appended_string = "This image is " + ("an X-ray image." if is_xray else "not an X-ray image.")
-            messages.append({
-                "role": "tool",
-                "content": appended_string + comment,
-                "tool_call_id": call['id']
-            })
 
     client = AsyncClient(
         base_url=os.getenv('LLM_BASE_URL'),
@@ -598,21 +509,6 @@ async def prompt(messages: list[dict[str, str]], **kwargs) -> AsyncGenerator[byt
                 ):
                     yield chunk
                 return
-            elif _name == "search":
-
-                yield await to_chunk_data(
-                    await wrap_thinking_chunk(
-                        response_uuid,
-                        f'Start searching on {_args["query"]}\n'
-                    ),
-                )
-                async for chunk in run_deep_search_pipeline(
-                    _args['query'],
-                    response_uuid=response_uuid,
-                    max_iterations=2,  # Set to 2 because 1 will not trigger the while loop
-                ):
-                    yield chunk
-                return
 
             yield await to_chunk_data(
                 await wrap_toolcall_request(
@@ -644,7 +540,7 @@ async def prompt(messages: list[dict[str, str]], **kwargs) -> AsyncGenerator[byt
         completion = await client.chat.completions.create(
             model=model_id,
             messages=messages,
-            tools=TOOL_CALLS if loops < 5 else openai._types.NOT_GIVEN,
+            tools=TOOL_CALLS if loops < 3 else openai._types.NOT_GIVEN,
             tool_choice="auto",
         )
 
