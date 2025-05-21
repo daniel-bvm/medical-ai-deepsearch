@@ -10,3 +10,4 @@ copy system_prompt.txt system_prompt.txt
 env PROXY_SCOPE="*api.tavily.com*"
 env PUBMED_EMAIL="daniel@bvm.network"
 env FORWARD_ALL_MESSAGES=1
+env TAVILY_API_KEY=123
