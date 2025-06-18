@@ -425,7 +425,11 @@ async def prompt(messages: list[dict[str, str]], **kwargs) -> AsyncGenerator[byt
                 ),
             )
 
-            is_xray, vis, comment = xray_lesion_detector.xray_diagnose_agent(path, user_message)
+            try:
+                is_xray, vis, comment = xray_lesion_detector.xray_diagnose_agent(path, user_message, has_vision_support=True)
+            except Exception as e:
+                logger.error(f"Error in xray_lesion_detector.xray_diagnose_agent: {str(e)}; fallback to has_vision_support=False", exc_info=True)
+                is_xray, vis, comment = xray_lesion_detector.xray_diagnose_agent(path, user_message, has_vision_support=False)
 
             if vis is not None:
                 template = '''

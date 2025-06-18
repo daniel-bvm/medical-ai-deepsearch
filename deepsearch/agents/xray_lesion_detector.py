@@ -25,7 +25,7 @@ except Exception:
 
 @lru_cache(maxsize=1)
 def _load_model():
-    tmp_path = os.path.join(os.getcwd(), 'cache', 'yolo11l-chess-xray-lesion-detector.onnx')
+    tmp_path = os.path.join('/storage', 'cache', 'yolo11l-chess-xray-lesion-detector.onnx')
 
     if not os.path.exists(tmp_path):
         os.makedirs(os.path.dirname(tmp_path), exist_ok=True)
@@ -35,7 +35,7 @@ def _load_model():
 
 @lru_cache(maxsize=1)
 def _load_another_model():
-    tmp_path = os.path.join(os.getcwd(), 'cache', 'yolo11l-chess-xray-lesion-detector-2.onnx')
+    tmp_path = os.path.join('/storage', 'cache', 'yolo11l-chess-xray-lesion-detector-2.onnx')
 
     if not os.path.exists(tmp_path):
         os.makedirs(os.path.dirname(tmp_path), exist_ok=True)
@@ -347,7 +347,10 @@ def quick_diagnose(result: PredictionResult) -> str:
 
     res = 'Found {} lesions in total:\n'.format(total)
 
-    for relative_position, lesions in by_relative_position.items():
+    for i, (relative_position, lesions) in enumerate(by_relative_position.items()):
+        if i > 0:
+            res += '\n'
+
         res += '{}: {}'.format(
             str(relative_position),
             ', '.join(
@@ -398,11 +401,11 @@ def is_xray_image(img_path: str) -> bool:
     system_prompt = 'you are classifying whether the image is a xray image or not. just answer "yes" or "no" in plain text.'
 
     client = OpenAI(
-        base_url=os.getenv('VLM_BASE_URL'),
-        api_key=os.getenv('VLM_API_KEY', 'not-needed')
+        base_url=os.getenv('LLM_BASE_URL'),
+        api_key=os.getenv('LLM_API_KEY', 'not-needed')
     )
     out = client.chat.completions.create(
-        model=os.getenv('VLM_MODEL_ID', 'local-model'),
+        model=os.getenv('LLM_MODEL_ID', 'local-model'),
         messages=[
             {
                 'role': 'system',
@@ -445,12 +448,15 @@ def xray_diagnose_agent(
         - comment_by_doctor: str, the comment by doctor
     """
 
+    logger.info(f"has_vision_support: {has_vision_support}")
     is_xray = is_xray_image(img_path) if has_vision_support else True
 
-    if not is_xray:
+    if not is_xray and has_vision_support:
+        logger.info("Image is not a xray image, using VLM to diagnose")
+
         client = OpenAI(
-            base_url=os.getenv('VLM_BASE_URL'),
-            api_key=os.getenv('VLM_API_KEY', 'not-needed')
+            base_url=os.getenv('LLM_BASE_URL'),
+            api_key=os.getenv('LLM_API_KEY', 'not-needed')
         )
 
         system_prompt = 'You are a healthcare master, you are reading and diagnosing an image for a user. Notice that the image can be a medical report, in-body, blood test report, skin, face, or other parts, and the problem can be lesions, fractures, etc. Keep the conversation concise. If it is medical or healthcare-related documents, or something like an in-body report, BMI report, prescription, etc, extract the content and summarize it. Otherwise, if the image is a body part, face, write a short medical diagnosis if something is wrong, or just answer "looking good!". Just  write diagnosis, no recommendation needed.'
@@ -462,7 +468,7 @@ def xray_diagnose_agent(
         image_uri = f'data:image/jpeg;base64,{base64.b64encode(b.getvalue()).decode("utf-8")}'
 
         comment_by_doctor = client.chat.completions.create(
-            model=os.getenv('VLM_MODEL_ID', 'local-model'),
+            model=os.getenv('LLM_MODEL_ID', 'local-model'),
             messages=[
                 {
                     'role': 'system',
@@ -490,6 +496,7 @@ def xray_diagnose_agent(
 
         return False, None, strip_thinking_content(comment_by_doctor.choices[0].message.content)
 
+    logger.info("Image is detected as xray, using Yolo v11l to diagnose")
     confidence_thres = 0.2 if has_vision_support else 0.5
     iou_thres = 0.45 if has_vision_support else 0.5
 
