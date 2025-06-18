@@ -438,7 +438,6 @@ async def prompt(messages: list[dict[str, str]], **kwargs) -> AsyncGenerator[byt
 
 <img src="{uri}" width="360px" alt="Diagnosis result"/><br>
 
---------------------------------
 '''
 
                 uri = image_to_base64_uri(vis)
@@ -458,7 +457,6 @@ async def prompt(messages: list[dict[str, str]], **kwargs) -> AsyncGenerator[byt
     {comment}
 </details>
 
---------------------------------
 '''
                 yield await to_chunk_data(
                     await wrap_chunk(
