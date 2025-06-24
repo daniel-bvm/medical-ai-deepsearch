@@ -9,20 +9,17 @@ from typing import Any
 from PIL import Image
 from io import BytesIO
 import numpy as np
-
+import re
 
 logger = logging.getLogger(__name__)
 
+def strip_toolcall_noti(content: str) -> str:
+    cleaned = re.sub(r"<action\b[^>]*>.*?</action>", "", content, flags=re.DOTALL | re.IGNORECASE)
+    return cleaned.lstrip(" \t")
 
-def heif_to_jpeg(file_data_uri: str) -> str:
-    file_data_base64 = file_data_uri.split(',')[-1]
-    file_data = base64.b64decode(file_data_base64)
-    img = Image.open(BytesIO(file_data))
-    img = img.convert('RGB')
-    buffer = BytesIO()
-    img.save(buffer, format='JPEG')
-    return buffer.getvalue()
-
+def strip_thinking_content(content: str) -> str:
+    pat = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+    return pat.sub("", content).lstrip(" \t")
 
 async def preserve_upload_file(file_data_uri: str, file_name: str, preserve_attachments: bool = False) -> str:
     os.makedirs(os.path.join(os.getcwd(), 'uploads'), exist_ok=True)
@@ -47,6 +44,19 @@ async def preserve_upload_file(file_data_uri: str, file_name: str, preserve_atta
         return None
 
 
+def get_file_extension(uri: str) -> str:
+    logger.info(f"received uri: {uri[:100]}")
+    if uri.startswith('data:'):
+        return uri.split(';')[0].split('/')[-1]
+    
+    if uri.startswith('http'):
+        return uri.split('.')[-1]
+    
+    if uri.startswith('file:'):
+        return uri.split('.')[-1]
+    
+    return None
+
 async def get_attachments(content: list[dict[str, str]]) -> list[str]:
     attachments = []
 
@@ -58,15 +68,27 @@ async def get_attachments(content: list[dict[str, str]]) -> list[str]:
         if item.get('type', 'undefined') == 'file':
             file = item.get('file')
             data = file.get('file_data')
-            filename = file.get('filename')
+            extension = get_file_extension(data)
+
+            if file.get('filename') is None and extension is None:
+                logger.warning(f"No filename or extension found for file: {file}; Content-type unknown")
+                continue
+
+            filename = file.get('filename', f'file_{len(attachments)}.{extension}')
 
             if data and filename:
                 attachments.append((data, filename))
 
         elif item.get('type', 'undefined') == 'image_url':
-            image_url = item.get('image_url')
-            name = image_url.get('name')
+            image_url: dict = item.get('image_url')
             url = image_url.get('url')
+            extension = get_file_extension(url)
+
+            if image_url.get('name') is None and extension is None:
+                logger.warning(f"No name or extension found for image: {image_url}; Content-type unknown")
+                continue
+
+            name = image_url.get('name', f'image_{len(attachments)}.{extension}')
 
             if url and name:
                 attachments.append((url, name))
@@ -74,8 +96,11 @@ async def get_attachments(content: list[dict[str, str]]) -> list[str]:
     return attachments
 
 
-async def refine_chat_history(messages: list[dict[str, str]], system_prompt: str, preserve_attachments: bool = False) -> list[dict[str, str]]:
+async def refine_chat_history(messages: list[dict[str, str]], system_prompt: str = '', preserve_attachments: bool = False) -> list[dict[str, str]]:
     refined_messages = []
+
+    current_time_utc_str = datetime.datetime.now(tz=datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    system_prompt += f'\nNote: Current time is {current_time_utc_str} UTC (only use this information when being asked or for searching purposes)'
 
     has_system_prompt = False
 
@@ -103,9 +128,18 @@ async def refine_chat_history(messages: list[dict[str, str]], system_prompt: str
                 elif item.get('type', 'undefined') == 'file':
                     file_item = item.get('file', {})
                     if 'file_data' in file_item and 'filename' in file_item:
+                        file_data = file_item.get('file_data', '')
+                        file_ext = get_file_extension(file_data)
+
+                        if file_item.get('filename') is None and file_ext is None:
+                            logger.warning(f"No filename or file extension found for file: {file_item}; Content-type unknown")
+                            continue
+
+                        filename = file_item.get('filename', f'file_{len(attachments)}.{file_ext}')
+
                         file_path = await preserve_upload_file(
-                            file_item.get('file_data', ''),
-                            file_item.get('filename', ''),
+                            file_data,
+                            filename,
                             preserve_attachments
                         )
 
@@ -116,9 +150,18 @@ async def refine_chat_history(messages: list[dict[str, str]], system_prompt: str
                     file_item = item.get('image_url', {})
 
                     if 'url' in file_item:
+                        url = file_item.get('url', '')
+                        extension = get_file_extension(url)
+
+                        if file_item.get('name') is None and extension is None:
+                            logger.warning(f"No name or extension found for image: {file_item}; Content-type unknown")
+                            continue
+
+                        name = file_item.get('name', f'image_{len(attachments)}.{extension}')
+
                         file_path = await preserve_upload_file(
-                            file_item.get('url', ''),
-                            file_item.get('name', f'image_{len(attachments)}.jpg'),
+                            url,
+                            name,
                             preserve_attachments
                         )
 
@@ -132,11 +175,16 @@ async def refine_chat_history(messages: list[dict[str, str]], system_prompt: str
 
             refined_messages.append({
                 "role": "user",
-                "content": text_input
+                "content": strip_toolcall_noti(strip_thinking_content(text_input))
             })
 
         else:
-            refined_messages.append(message)
+            _message = {
+                "role": message.get('role', 'assistant'),
+                "content": strip_toolcall_noti(strip_thinking_content(message.get('content', '')))
+            }
+
+            refined_messages.append(_message)
 
     if not has_system_prompt and system_prompt != "":
         refined_messages.insert(0, {
@@ -147,7 +195,7 @@ async def refine_chat_history(messages: list[dict[str, str]], system_prompt: str
     if isinstance(refined_messages[-1], str):
         refined_messages[-1] = {
             "role": "user",
-            "content": refined_messages[-1] + '\n/no_think'
+            "content": refined_messages[-1]
         }
 
     return refined_messages
@@ -182,7 +230,8 @@ async def wrap_chunk(uuid: str, raw: str, role: str = 'assistant') -> ChatComple
 
 
 async def wrap_thinking_chunk(uuid: str, raw: str) -> ChatCompletionStreamResponse:
-    content = f"<think>{raw}</think>"
+    content = f"<action>{raw}</action>\n"
+
     return ChatCompletionStreamResponse(
         id=uuid,
         object='chat.completion.chunk',
@@ -192,42 +241,6 @@ async def wrap_thinking_chunk(uuid: str, raw: str) -> ChatCompletionStreamRespon
             dict(
                 index=0,
                 delta=dict(content=content)
-            )
-        ]
-    )
-
-
-
-async def wrap_toolcall_request(uuid: str, fn_name: str, args: dict[str, Any]) -> ChatCompletionStreamResponse:
-    args_str = json.dumps(args, indent=2)
-
-    template = f'''
-Executing <b>{fn_name}</b>
-
-<details>
-<summary>
-Arguments:
-</summary>
-
-```json
-{args_str}
-```
-
-</details>
-'''
-
-    return ChatCompletionStreamResponse(
-        id=uuid,
-        object='chat.completion.chunk',
-        created=int(time.time()),
-        model='unspecified',
-        choices=[
-            dict(
-                index=0,
-                delta=dict(
-                    content=template,
-                    role='tool'
-                ),
             )
         ]
     )

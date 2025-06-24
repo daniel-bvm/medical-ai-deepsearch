@@ -230,10 +230,10 @@ class PredictionResult:
     org_size: tuple[int, int] = field(default_factory=tuple) # height, width
     org_path: str = field(default_factory=str)
 
-def infer(session: ort.InferenceSession, image_path: str) -> PredictionResult:
+def infer(session: ort.InferenceSession, image_path: str, confidence_thres: float = 0.2, iou_thres: float = 0.45) -> PredictionResult:
     image_data, pad, img_height, img_width = preprocess(image_path)
     outputs = session.run(None, {session.get_inputs()[0].name: image_data})
-    outputs = postprocess(outputs, img_height, img_width, pad)
+    outputs = postprocess(outputs, img_height, img_width, pad, confidence_thres, iou_thres)
 
     for i in range(len(outputs)):
         x, y, w, h = outputs[i]['box']
@@ -249,12 +249,12 @@ def infer(session: ort.InferenceSession, image_path: str) -> PredictionResult:
 
     return res
 
-def predict(image_path: str) -> PredictionResult:
+def predict(image_path: str, confidence_thres: float = 0.2, iou_thres: float = 0.45) -> PredictionResult:
     model = _load_model()
     another_model = _load_another_model()
 
-    results = infer(model, image_path)
-    another_results = infer(another_model, image_path)
+    results = infer(model, image_path, confidence_thres, iou_thres)
+    another_results = infer(another_model, image_path, confidence_thres, iou_thres)
 
     for i in range(len(another_results.cls)):
         another_results.cls[i] += 7
@@ -380,6 +380,12 @@ def visualize(result: PredictionResult) -> np.ndarray:
 
     return image
 
+
+import re
+def strip_thinking_content(content: str) -> str:
+    pat = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+    return pat.sub("", content)
+
 def is_xray_image(img_path: str) -> bool:
 
     img = Image.open(img_path)
@@ -422,13 +428,14 @@ def is_xray_image(img_path: str) -> bool:
         temperature=0.2
     )
     logger.info(f"Response from LLM: {out.choices[0].message.content}")
-    msg_out = out.choices[0].message.content
+    msg_out = strip_thinking_content(out.choices[0].message.content)
     return 'yes' in msg_out.lower()
 
 
 def xray_diagnose_agent(
     img_path: str,
     orig_user_message: Optional[str] = None,
+    has_vision_support: bool = False,
 ) -> tuple[bool, Optional[np.ndarray], Optional[str]]:
     """Return the diagnosis of the image.
 
@@ -437,7 +444,8 @@ def xray_diagnose_agent(
         - vis: np.ndarray, the image with bounding boxes (can be None)
         - comment_by_doctor: str, the comment by doctor
     """
-    is_xray = is_xray_image(img_path)
+
+    is_xray = is_xray_image(img_path) if has_vision_support else True
 
     if not is_xray:
         client = OpenAI(
@@ -480,16 +488,20 @@ def xray_diagnose_agent(
             temperature=0.2
         )
 
-        return False, None, comment_by_doctor.choices[0].message.content
+        return False, None, strip_thinking_content(comment_by_doctor.choices[0].message.content)
 
-    result = predict(img_path)
+    confidence_thres = 0.2 if has_vision_support else 0.5
+    iou_thres = 0.45 if has_vision_support else 0.5
+
+    result = predict(img_path, confidence_thres=confidence_thres, iou_thres=iou_thres)
     res = quick_diagnose(result)
 
     if res is not None:
         vis = visualize(result)
     else:
         vis = None
-
+        
+    logger.info(f"Yolo v11l output: {res or 'no lesions found'}")
     client = OpenAI(
         base_url=os.getenv('LLM_BASE_URL'),
         api_key=os.getenv('LLM_API_KEY')
@@ -513,4 +525,4 @@ def xray_diagnose_agent(
         temperature=0.2
     )
 
-    return True, vis, comment_by_doctor.choices[0].message.content
+    return True, vis, strip_thinking_content(comment_by_doctor.choices[0].message.content)
