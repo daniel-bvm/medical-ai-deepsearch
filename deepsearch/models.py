@@ -48,7 +48,6 @@ class SearchState(BaseModel):
     original_query: str
     generated_queries: List[str] = Field(default_factory=list)  # List of generated queries
     current_iteration: int = 0  # Track the iteration count for recursive search
-    tavily_results: List[SearchResult] = Field(default_factory=list)
     pubmed_results: List[SearchResult] = Field(default_factory=list)  # Results from PubMed
     faiss_results: List[SearchResult] = Field(default_factory=list)
     bm25_results: List[SearchResult] = Field(default_factory=list)

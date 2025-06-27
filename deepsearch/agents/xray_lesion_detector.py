@@ -10,6 +10,7 @@ import io
 from PIL import Image
 import onnxruntime as ort
 import logging
+from deepsearch.utils import strip_markers
 
 logging.basicConfig(level=logging.INFO)
 
@@ -383,12 +384,6 @@ def visualize(result: PredictionResult) -> np.ndarray:
 
     return image
 
-
-import re
-def strip_thinking_content(content: str) -> str:
-    pat = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
-    return pat.sub("", content)
-
 def is_xray_image(img_path: str) -> bool:
 
     img = Image.open(img_path)
@@ -437,7 +432,7 @@ def is_xray_image(img_path: str) -> bool:
         raise Exception("STUPID LLM DOES NOT UNDERSTAND IMAGE")
 
     logger.info(f"Response from LLM: {out.choices[0].message.content}")
-    msg_out = strip_thinking_content(out.choices[0].message.content)
+    msg_out = strip_markers(out.choices[0].message.content, ('think', False))
     return 'yes' in msg_out.lower()
 
 
@@ -500,7 +495,7 @@ def xray_diagnose_agent(
             temperature=0.2
         )
 
-        return False, None, strip_thinking_content(comment_by_doctor.choices[0].message.content)
+        return False, None, strip_markers(comment_by_doctor.choices[0].message.content, ('think', False))
 
     logger.info("Image is detected as xray, using Yolo v11l to diagnose")
     confidence_thres = 0.2 if has_vision_support else 0.5
@@ -538,4 +533,4 @@ def xray_diagnose_agent(
         temperature=0.2
     )
 
-    return True, vis, strip_thinking_content(comment_by_doctor.choices[0].message.content)
+    return True, vis, strip_markers(comment_by_doctor.choices[0].message.content, ('think', False))

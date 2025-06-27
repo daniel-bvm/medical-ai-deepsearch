@@ -97,10 +97,10 @@ def bm25_search(query: str, bm25, valid_indices: List[int], search_results: List
 
 def bm25_search_agent(state: SearchState) -> SearchState:
     """
-    Uses BM25 for on-the-fly keyword-based retrieval from Tavily search results.
+    Uses BM25 for on-the-fly keyword-based retrieval from Pubmed search results.
 
     Args:
-        state: The current search state with Tavily search results
+        state: The current search state with Pubmed search results
 
     Returns:
         Updated state with BM25 search results and combined results
@@ -108,23 +108,19 @@ def bm25_search_agent(state: SearchState) -> SearchState:
     # Initialize combined results as an empty list
     state.combined_results = []
 
-    # Check if we have Tavily results to work with
-    if (not state.tavily_results or len(state.tavily_results) == 0) and (not state.pubmed_results or len(state.pubmed_results) == 0):
-        logger.info("No Tavily results available for BM25 search")
-        # If no Tavily results, just use the FAISS results
+    # Check if we have Pubmed results to work with
+    if not state.pubmed_results or len(state.pubmed_results) == 0:
+        logger.info("No Pubmed results available for BM25 search")
+        # If no Pubmed results, just use the FAISS results
         state.bm25_results = []
         state.combined_results = state.faiss_results if state.faiss_results else []
         return state
 
     # Ensure we have at least some content to work with
-    valid_results = [
-        r for r in state.tavily_results if r.content and len(r.content.strip()) > 0
-    ] + [
-        r for r in state.pubmed_results if r.content and len(r.content.strip()) > 0
-    ]
+    valid_results = [r for r in state.pubmed_results if r.content and len(r.content.strip()) > 0]
 
     if not valid_results:
-        logger.info("No valid content in Tavily results for BM25 search")
+        logger.info("No valid content in Pubmed results for BM25 search")
         # If no valid content in results, skip BM25
         state.bm25_results = []
         state.combined_results = state.faiss_results if state.faiss_results else []
@@ -171,12 +167,6 @@ def bm25_search_agent(state: SearchState) -> SearchState:
     # Add BM25 results
     if state.bm25_results:
         for result in state.bm25_results:
-            if result not in all_results:
-                all_results.append(result)
-
-    # Add any remaining Tavily results
-    if state.tavily_results:
-        for result in state.tavily_results:
             if result not in all_results:
                 all_results.append(result)
 

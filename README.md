@@ -30,7 +30,6 @@ docker run --rm -it -p 4000:80 \
 -e LLM_API_KEY=<your-llm-api-key> \ # optional: no needed if using local model 
 -e LLM_MODEL_ID=<llm-model> \ # optional: no needed if using local model
 -e EMBEDDING_MODEL_ID=<embedding-model> \ # optional: for deepsearch
--e PROXY_SCOPE='*api.tavily.com*' \
 vibe-healthcare-master
 ```
 

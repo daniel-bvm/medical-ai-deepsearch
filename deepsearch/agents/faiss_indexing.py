@@ -309,31 +309,29 @@ def faiss_search(query: str, embeddings, index, embedded_texts: List, valid_indi
 
 def faiss_indexing_agent(state: SearchState) -> SearchState:
     """
-    Builds a FAISS index on-the-fly from Tavily search results and performs vector search.
+    Builds a FAISS index on-the-fly from Pubmed search results and performs vector search.
 
     Args:
-        state: The current search state with Tavily search results
+        state: The current search state with Pubmed search results
 
     Returns:
         Updated state with FAISS search results
     """
-    # Check if we have Tavily results to work with
-    if (not state.tavily_results or len(state.tavily_results) == 0) and (not state.pubmed_results or len(state.pubmed_results) == 0):
+    # Check if we have Pubmed results to work with
+    if (not state.pubmed_results or len(state.pubmed_results) == 0):
         # If no results, skip this agent
-        logger.info("No Tavily results available for FAISS indexing")
+        logger.info("No Pubmed results available for FAISS indexing")
         state.faiss_results = []
         return state
 
     # Ensure we have at least some content to work with
     valid_results = [
-        r for r in state.tavily_results if r.content and isinstance(r.content, str) and len(r.content.strip()) > 0
-    ] + [
         r for r in state.pubmed_results if r.content and isinstance(r.content, str) and len(r.content.strip()) > 0
     ]
 
     if not valid_results:
         # If no valid content in results, skip FAISS
-        logger.info("No valid content in Tavily results for FAISS indexing")
+        logger.info("No valid content in Pubmed results for FAISS indexing")
         state.faiss_results = []
         return state
 

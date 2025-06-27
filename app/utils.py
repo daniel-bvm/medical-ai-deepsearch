@@ -2,6 +2,7 @@ import os
 import datetime
 import logging
 import base64
+from pydantic import BaseModel
 from .models import ChatCompletionStreamResponse
 import time
 import json
@@ -9,17 +10,9 @@ from typing import Any
 from PIL import Image
 from io import BytesIO
 import numpy as np
-import re
+from deepsearch.utils import strip_markers
 
 logger = logging.getLogger(__name__)
-
-def strip_toolcall_noti(content: str) -> str:
-    cleaned = re.sub(r"<action\b[^>]*>.*?</action>", "", content, flags=re.DOTALL | re.IGNORECASE)
-    return cleaned.lstrip(" \t")
-
-def strip_thinking_content(content: str) -> str:
-    pat = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
-    return pat.sub("", content).lstrip(" \t")
 
 async def preserve_upload_file(file_data_uri: str, file_name: str, preserve_attachments: bool = False) -> str:
     os.makedirs(os.path.join(os.getcwd(), 'uploads'), exist_ok=True)
@@ -122,6 +115,8 @@ async def refine_chat_history(messages: list[dict[str, str]], system_prompt: str
             attachments = []
 
             for item in content:
+                item: dict[str, str]
+
                 if item.get('type', 'undefined') == 'text':
                     text_input += item.get('text') or ''
 
@@ -175,13 +170,25 @@ async def refine_chat_history(messages: list[dict[str, str]], system_prompt: str
 
             refined_messages.append({
                 "role": "user",
-                "content": strip_toolcall_noti(strip_thinking_content(text_input))
+                "content": strip_markers(
+                    text_input, 
+                    ('action', False), 
+                    ('think', False), 
+                    ('img', False), 
+                    ('details', False)
+                )
             })
 
         else:
             _message = {
                 "role": message.get('role', 'assistant'),
-                "content": strip_toolcall_noti(strip_thinking_content(message.get('content', '')))
+                "content": strip_markers(
+                    message.get('content', ''), 
+                    ('action', False), 
+                    ('think', False), 
+                    ('img', False), 
+                    ('details', False)
+                )
             }
 
             refined_messages.append(_message)
@@ -201,7 +208,7 @@ async def refine_chat_history(messages: list[dict[str, str]], system_prompt: str
     return refined_messages
 
 
-async def refine_assistant_message(
+def refine_assistant_message(
     assistant_message: dict[str, str]
 ) -> dict[str, str]:
 
@@ -211,7 +218,7 @@ async def refine_assistant_message(
     return assistant_message
 
 
-async def wrap_chunk(uuid: str, raw: str, role: str = 'assistant') -> ChatCompletionStreamResponse:
+def wrap_chunk(uuid: str, raw: str, role: str = 'assistant') -> ChatCompletionStreamResponse:
     return ChatCompletionStreamResponse(
         id=uuid,
         object='chat.completion.chunk',
@@ -229,7 +236,7 @@ async def wrap_chunk(uuid: str, raw: str, role: str = 'assistant') -> ChatComple
     )
 
 
-async def wrap_thinking_chunk(uuid: str, raw: str) -> ChatCompletionStreamResponse:
+def wrap_thinking_chunk(uuid: str, raw: str) -> ChatCompletionStreamResponse:
     content = f"<action>{raw}</action>\n"
 
     return ChatCompletionStreamResponse(
@@ -246,7 +253,7 @@ async def wrap_thinking_chunk(uuid: str, raw: str) -> ChatCompletionStreamRespon
     )
 
 
-async def to_chunk_data(chunk: ChatCompletionStreamResponse) -> bytes:
+def to_chunk_data(chunk: BaseModel) -> bytes:
     return ("data: " + json.dumps(chunk.model_dump()) + "\n\n").encode()
 
 
