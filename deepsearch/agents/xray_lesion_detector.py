@@ -433,7 +433,7 @@ def is_xray_image(img_path: str) -> bool:
     
     MAGIC_RESPONSE = "Unfortunately, I'm not equipped to interpret images at this time. Please provide a text description if possible."
 
-    if out.choices[0].message.content in MAGIC_RESPONSE:
+    if out.choices[0].message.content == MAGIC_RESPONSE:
         raise Exception("STUPID LLM DOES NOT UNDERSTAND IMAGE")
 
     logger.info(f"Response from LLM: {out.choices[0].message.content}")
